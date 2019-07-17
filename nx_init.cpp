@@ -1,13 +1,14 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <sys/mount.h>
 #include <linux/fs.h>
+#include <dirent.h>
 #include <fcntl.h>
-#include <string.h>
 
 enum {
 	CAM_TYPE_QUICKREAR	= 0x0,
@@ -15,8 +16,7 @@ enum {
 	CAM_TYPE_4CAMSVM	= 0x2
 };
 
-
-#define CMDLINE_READ_SIZE 512
+#define CMDLINE_READ_SIZE 2048
 #define OPTION_CNT_MAX 16
 
 struct nx_cam_option {
@@ -28,7 +28,8 @@ struct option_string {
 	char string[32];
 };
 
-char *rearcam_type = "nx_rearcam=";
+const char *rearcam_type = "nx_rearcam=";
+const char *product_partnum= "product_part=";
 
 static struct option_string string[] = {
 	{"nx_cam.m="},
@@ -114,14 +115,14 @@ static int runNxQuickRearCam(int cnt, struct nx_cam_option *option)
 		       , option[6].buffer, option[7].buffer, option[8].buffer
 		       , option[9].buffer, option[10].buffer, option[11].buffer
 		       , option[12].buffer, option[13].buffer, option[14].buffer
-		       , option[15].buffer);
+		       , option[15].buffer, NULL);
 		execl("/sbin/NxQuickRearCam", "NxQuickRearCam"
 		      , option[0].buffer, option[1].buffer, option[2].buffer
 		      , option[3].buffer, option[4].buffer, option[5].buffer
 		      , option[6].buffer, option[7].buffer, option[8].buffer
 		      , option[9].buffer, option[10].buffer, option[11].buffer
 		      , option[12].buffer, option[13].buffer, option[14].buffer
-		      , option[15].buffer);
+		      , option[15].buffer, NULL);
 	}
 	return 0;
 
@@ -132,10 +133,7 @@ int main(int argc, char *argv[])
 	pid_t pid;
 	int status = 0;
 	int access_ret = 0;
-	int fd = 0;
-	int r_size = 0;
 	int opt_cnt = 0;
-	char cmdline[CMDLINE_READ_SIZE];
 	long nxrear_cam = 0;
 
 	mount("sysfs", "/sys", "sysfs", 0, NULL);
@@ -151,41 +149,56 @@ int main(int argc, char *argv[])
 			return -1;
 		}
 
-		case 0: {
-			fd = open("/proc/cmdline", O_RDONLY);
-			if (fd >= 0) {
-				r_size = read(fd, cmdline, CMDLINE_READ_SIZE);
-				if (r_size == CMDLINE_READ_SIZE)
-					printf("check size of cmdline!!!\n");
+		case 0:
+		{
+			FILE *fp;
+			int r_size = 0;
+			char cmdline[CMDLINE_READ_SIZE];
+			char *ptr;
+			char product_blkname[32];
 
-				// check rear camera type
-				char *ptr = strstr(cmdline, rearcam_type);
-				if (ptr) {
-					int len = strlen(rearcam_type);
-					nxrear_cam = strtol(ptr+len, NULL, 10);
-				} else {
-					/* does not define nx_rearcam */
-					nxrear_cam = CAM_TYPE_QUICKREAR;
-				}
+			fp = fopen("/proc/cmdline", "r");
+			if (fp == NULL) {
+				printf("/proc/cmdline read failed \n");
+				return -1;
+			}
+
+			r_size = fread(cmdline, 1, CMDLINE_READ_SIZE, fp);
+			if (r_size == CMDLINE_READ_SIZE) {
+				printf("check size of cmdline!!!\n");
+				return -1;
+			}
+			fclose(fp);
+
+			/* check rear camera type */
+			ptr = strstr(cmdline, rearcam_type);
+			if (ptr) {
+				int len = strlen(rearcam_type);
+				nxrear_cam = strtol(ptr+len, NULL, 10);
 			} else {
-				/* set default NxQuickRearCam */
+				/* does not define nx_rearcam */
 				nxrear_cam = CAM_TYPE_QUICKREAR;
+			}
+			/* find product partition number */
+			ptr = strstr(cmdline, product_partnum);
+			if (ptr) {
+				ptr += strlen(product_partnum);
+				sscanf(ptr, "%s ",product_blkname);
+				mount(product_blkname,"/product", "ext4", 0, NULL);
+			} else {
+				/* does not define product */
+				printf("cmdline do not have %s \n", product_partnum);
 			}
 
 			if (nxrear_cam == CAM_TYPE_4CAMSVM
 			    || nxrear_cam == CAM_TYPE_1CAMTOPVIEW) {
-				if(fd)
-					close(fd);
-
-				mkdir("/svmdata", 0755);
-				mount("/dev/mmcblk0p2", "/svmdata", "ext4", 0
-				      , NULL);
 
 				if (nxrear_cam == CAM_TYPE_4CAMSVM) {
 					printf("start nx_3d_avm_daemon 4\n");
 					execl("/sbin/nx_3d_avm_daemon"
 					      , "nx_3d_avm_daemon", "4", NULL);
-				} else {
+				}
+				else {
 					printf("start nx_3d_avm_daemon 1\n");
 					execl("/sbin/nx_3d_avm_daemon"
 					      , "nx_3d_avm_daemon", "1", NULL);
@@ -200,18 +213,14 @@ int main(int argc, char *argv[])
 						* OPTION_CNT_MAX;
 					memset((void*)cam_option, 0x0, size);
 					opt_cnt = 0;
-
-					if (fd >= 0) {
-						opt_cnt = search_option(cmdline
-								, cam_option);
-						close(fd);
-					} else {
-						printf("does not found "
-						       "NxQuickRearCam option.\n");
-					}
+					opt_cnt = search_option(cmdline , cam_option);
 
 					runNxQuickRearCam(opt_cnt, cam_option);
 				}
+				else {
+					printf("/sbin/NxQuickRearCam is not exist \n");
+				}
+
 			}
 			break;
 		}
@@ -219,8 +228,13 @@ int main(int argc, char *argv[])
 		default:
 		{
 			usleep(500000);
+			#ifndef ANDROID
 			printf("start systemd \n");
 			execl("/lib/systemd/systemd","systemd", NULL);
+			#else
+			printf("start android init \n");
+			execl("/init","init", NULL);
+			#endif
 			break;
 		}
 	}
