@@ -227,8 +227,8 @@ int main(int argc, char *argv[])
 
 		default:
 		{
-			usleep(500000);
 			#ifndef ANDROID
+			usleep(500000);
 			printf("start systemd \n");
 			execl("/lib/systemd/systemd","systemd", NULL);
 			#else
