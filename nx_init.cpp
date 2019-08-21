@@ -227,11 +227,12 @@ int main(int argc, char *argv[])
 
 		default:
 		{
-			#ifndef ANDROID
 			usleep(500000);
+			#ifndef ANDROID
 			printf("start systemd \n");
 			execl("/lib/systemd/systemd","systemd", NULL);
 			#else
+			usleep(20000);
 			printf("start android init \n");
 			execl("/init","init", NULL);
 			#endif
