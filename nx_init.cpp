@@ -30,6 +30,7 @@ struct option_string {
 
 const char *rearcam_type = "nx_rearcam=";
 const char *product_partnum= "product_part=";
+const char *misc_partnum= "misc_part=";
 
 static struct option_string string[] = {
 	{"nx_cam.m="},
@@ -115,7 +116,7 @@ static int runNxQuickRearCam(int cnt, struct nx_cam_option *option)
 		       , option[6].buffer, option[7].buffer, option[8].buffer
 		       , option[9].buffer, option[10].buffer, option[11].buffer
 		       , option[12].buffer, option[13].buffer, option[14].buffer
-		       , option[15].buffer, NULL);
+		       , option[15].buffer) ;
 		execl("/sbin/NxQuickRearCam", "NxQuickRearCam"
 		      , option[0].buffer, option[1].buffer, option[2].buffer
 		      , option[3].buffer, option[4].buffer, option[5].buffer
@@ -138,6 +139,7 @@ int main(int argc, char *argv[])
 
 	mount("sysfs", "/sys", "sysfs", 0, NULL);
 	mount("proc", "/proc", "proc", 0, NULL);
+	mount("devtmpfs", "/dev", "devtmpfs", 0, NULL);
 
 	pid = fork();
 
@@ -156,6 +158,7 @@ int main(int argc, char *argv[])
 			char cmdline[CMDLINE_READ_SIZE];
 			char *ptr;
 			char product_blkname[32];
+			char misc_blkname[32];
 
 			fp = fopen("/proc/cmdline", "r");
 			if (fp == NULL) {
@@ -188,6 +191,16 @@ int main(int argc, char *argv[])
 			} else {
 				/* does not define product */
 				printf("cmdline do not have %s \n", product_partnum);
+			}
+			/* find product partition number */
+			ptr = strstr(cmdline, misc_partnum);
+			if (ptr) {
+				ptr += strlen(misc_partnum);
+				sscanf(ptr, "%s ",misc_blkname);
+				mount(misc_blkname,"/misc", "ext4", 0, NULL);
+			} else {
+				/* does not define product */
+				printf("cmdline do not have %s \n", misc_partnum);
 			}
 
 			if (nxrear_cam == CAM_TYPE_4CAMSVM
